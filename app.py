@@ -135,6 +135,24 @@ def index():
     return "Gmail Digest Bot is running. Use /webhook for Telegram updates.", 200
 
 
+@app.route("/debug")
+def debug():
+    """Visit this URL in browser to see exactly what the bot would send."""
+    try:
+        token_exists = os.path.exists("token.pickle")
+        token_b64_set = bool(os.getenv("TOKEN_PICKLE_B64"))
+        items = fetch_digest()
+        result = format_digest(items)
+        return (
+            f"<pre>token.pickle exists: {token_exists}\n"
+            f"TOKEN_PICKLE_B64 set: {token_b64_set}\n"
+            f"Items found: {len(items)}\n\n"
+            f"--- OUTPUT ({len(result)} chars) ---\n\n{result}</pre>"
+        ), 200
+    except Exception as e:
+        return f"<pre>ERROR: {e}</pre>", 500
+
+
 @app.route("/webhook", methods=["POST"])
 def receive_message():
     data = request.get_json()
