@@ -4,12 +4,16 @@ import requests
 from flask import Flask, request, jsonify
 from dotenv import load_dotenv
 from google.oauth2.credentials import Credentials
-from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
 import pickle
 
 load_dotenv()
+
+_token_b64 = os.getenv("TOKEN_PICKLE_B64")
+if _token_b64 and not os.path.exists("token.pickle"):
+    with open("token.pickle", "wb") as _f:
+        _f.write(base64.b64decode(_token_b64))
 
 app = Flask(__name__)
 
@@ -28,18 +32,20 @@ AGENTIC_KEYWORDS = [
 
 
 def get_gmail_service():
-    creds = None
-    if os.path.exists("token.pickle"):
-        with open("token.pickle", "rb") as f:
-            creds = pickle.load(f)
+    if not os.path.exists("token.pickle"):
+        raise RuntimeError(
+            "token.pickle not found. Set TOKEN_PICKLE_B64 env var on Render "
+            "(run locally first to generate token.pickle, then base64-encode it)."
+        )
+    with open("token.pickle", "rb") as f:
+        creds = pickle.load(f)
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:
             creds.refresh(Request())
+            with open("token.pickle", "wb") as f:
+                pickle.dump(creds, f)
         else:
-            flow = InstalledAppFlow.from_client_secrets_file("credentials.json", SCOPES)
-            creds = flow.run_local_server(port=0)
-        with open("token.pickle", "wb") as f:
-            pickle.dump(creds, f)
+            raise RuntimeError("Gmail token is invalid and cannot be refreshed. Re-run auth locally and update TOKEN_PICKLE_B64.")
     return build("gmail", "v1", credentials=creds)
 
 
