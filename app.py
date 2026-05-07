@@ -1,11 +1,18 @@
 import os
+import re
+import io
 import base64
+import threading
 import requests
+from datetime import datetime
 from flask import Flask, request, jsonify
 from dotenv import load_dotenv
 from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request
+from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
+from googleapiclient.http import MediaIoBaseUpload
+from openai import OpenAI
 import pickle
 
 load_dotenv()
@@ -17,10 +24,21 @@ if _token_b64 and not os.path.exists("token.pickle"):
 
 app = Flask(__name__)
 
+openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
+# Stores last digest per chat so number replies map to the correct topics
+pending_digest: dict[int, list[tuple[str, str]]] = {}
+
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_API = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}"
 
-SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
+SCOPES = [
+    "https://www.googleapis.com/auth/gmail.readonly",
+    "https://www.googleapis.com/auth/drive.file",
+]
+
+DRIVE_FOLDER_NAME = "agiorbit-research"
+_drive_folder_id: str | None = None
 NEWSLETTER_QUERY = (
     "(from:news@alphasignal.ai OR from:dan@tldrnewsletter.com) newer_than:1d"
 )
@@ -31,22 +49,52 @@ AGENTIC_KEYWORDS = [
 ]
 
 
+def _load_creds():
+    """Load, refresh, or initiate OAuth flow; return valid Credentials."""
+    creds = None
+    if os.path.exists("token.pickle"):
+        with open("token.pickle", "rb") as f:
+            creds = pickle.load(f)
+    if creds and creds.valid:
+        return creds
+    if creds and creds.expired and creds.refresh_token:
+        creds.refresh(Request())
+    else:
+        flow = InstalledAppFlow.from_client_secrets_file("credentials.json", SCOPES)
+        creds = flow.run_local_server(port=0)
+    with open("token.pickle", "wb") as f:
+        pickle.dump(creds, f)
+    return creds
+
+
 def get_gmail_service():
-    if not os.path.exists("token.pickle"):
-        raise RuntimeError(
-            "token.pickle not found. Set TOKEN_PICKLE_B64 env var on Render "
-            "(run locally first to generate token.pickle, then base64-encode it)."
-        )
-    with open("token.pickle", "rb") as f:
-        creds = pickle.load(f)
-    if not creds or not creds.valid:
-        if creds and creds.expired and creds.refresh_token:
-            creds.refresh(Request())
-            with open("token.pickle", "wb") as f:
-                pickle.dump(creds, f)
-        else:
-            raise RuntimeError("Gmail token is invalid and cannot be refreshed. Re-run auth locally and update TOKEN_PICKLE_B64.")
-    return build("gmail", "v1", credentials=creds)
+    return build("gmail", "v1", credentials=_load_creds())
+
+
+def get_drive_service():
+    return build("drive", "v3", credentials=_load_creds())
+
+
+def get_research_folder_id(drive_service) -> str:
+    global _drive_folder_id
+    if _drive_folder_id:
+        return _drive_folder_id
+    query = (
+        f"name='{DRIVE_FOLDER_NAME}' "
+        f"and mimeType='application/vnd.google-apps.folder' "
+        f"and trashed=false"
+    )
+    results = drive_service.files().list(q=query, fields="files(id)").execute()
+    files = results.get("files", [])
+    if files:
+        _drive_folder_id = files[0]["id"]
+    else:
+        folder = drive_service.files().create(
+            body={"name": DRIVE_FOLDER_NAME, "mimeType": "application/vnd.google-apps.folder"},
+            fields="id",
+        ).execute()
+        _drive_folder_id = folder["id"]
+    return _drive_folder_id
 
 
 def get_email_body(service, msg_id):
@@ -149,6 +197,81 @@ def format_digest(items):
     return "\n".join(lines)
 
 
+def is_topic_selection(text: str) -> bool:
+    """Return True if the message is purely a comma/space-separated list of integers."""
+    return bool(re.fullmatch(r'[\d ,]+', text.strip())) and bool(re.search(r'\d', text))
+
+
+def parse_topic_nums(text: str) -> list[int]:
+    return [int(n) for n in re.findall(r'\d+', text)]
+
+
+def research_topic(topic_num: int, headline: str, summary: str) -> str:
+    """Call OpenAI to research a topic and upload the result to Google Drive; return filename."""
+    prompt = (
+        f"Research the following AI/coding topic and give a detailed but concise summary.\n\n"
+        f"Topic: {headline}\n"
+        f"Context: {summary}\n\n"
+        f"Cover:\n"
+        f"1. What this is about (2-3 sentences)\n"
+        f"2. Why it matters for developers / AI practitioners\n"
+        f"3. Key technical details or implications\n\n"
+        f"Keep the response under 400 words."
+    )
+    response = openai_client.chat.completions.create(
+        model="gpt-5.4-mini",
+        messages=[{"role": "user", "content": prompt}],
+        max_tokens=600,
+    )
+    text = response.choices[0].message.content.strip()
+
+    date_str = datetime.now().strftime("%Y-%m-%d")
+    slug = re.sub(r'[^a-zA-Z0-9 _-]', '', headline[:40]).strip().replace(' ', '_')
+    filename = f"{date_str}_topic{topic_num}_{slug}.md"
+
+    content = f"# {headline}\n\n**Context:** {summary}\n\n**Research Date:** {date_str}\n\n---\n\n{text}"
+
+    drive_service = get_drive_service()
+    folder_id = get_research_folder_id(drive_service)
+    media = MediaIoBaseUpload(io.BytesIO(content.encode("utf-8")), mimetype="text/markdown")
+    drive_service.files().create(
+        body={"name": filename, "parents": [folder_id]},
+        media_body=media,
+        fields="id",
+    ).execute()
+
+    return filename
+
+
+def research_and_reply(chat_id: int, topic_nums: list[int], items: list[tuple[str, str]]):
+    """Run in a background thread: research topics in parallel, then notify done."""
+    errors: dict[int, str] = {}
+    saved: list[str] = []
+    lock = threading.Lock()
+
+    def do_one(num: int):
+        headline, summary = items[num - 1]
+        try:
+            filepath = research_topic(num, headline, summary)
+            with lock:
+                saved.append(f"Topic {num} → {filepath}")
+        except Exception as e:
+            with lock:
+                errors[num] = str(e)
+
+    threads = [threading.Thread(target=do_one, args=(n,)) for n in topic_nums]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    if errors:
+        failed = ", ".join(f"topic {n}" for n in sorted(errors))
+        send_message(chat_id, f"Research done. Failed: {failed}.")
+    else:
+        send_message(chat_id, f"Research complete. {len(saved)} topic(s) saved to Google Drive → {DRIVE_FOLDER_NAME}.")
+
+
 @app.route("/")
 def index():
     return "Gmail Digest Bot is running. Use /webhook for Telegram updates.", 200
@@ -190,15 +313,31 @@ def receive_message():
         send_message(chat_id, "Fetching latest agentic coding news...")
         try:
             items = fetch_digest()
+            pending_digest[chat_id] = items
             reply = format_digest(items)
             send_message(chat_id, reply, parse_mode="HTML")
+            if items:
+                send_message(chat_id, "Reply with topic numbers (e.g. 2,5) to research them.")
         except Exception as e:
             send_message(chat_id, f"Error fetching digest: {e}")
         return jsonify({"status": "ok"}), 200
-    else:
-        reply = "Send /digest to get the latest agentic coding news from your newsletters."
 
-    send_message(chat_id, reply)
+    if chat_id in pending_digest and is_topic_selection(text):
+        items = pending_digest[chat_id]
+        nums = parse_topic_nums(text)
+        valid = [n for n in nums if 1 <= n <= len(items)]
+        invalid = [n for n in nums if n not in valid]
+        if not valid:
+            send_message(chat_id, f"Please send valid topic numbers between 1 and {len(items)}.")
+            return jsonify({"status": "ok"}), 200
+        if invalid:
+            send_message(chat_id, f"Ignoring out-of-range numbers: {', '.join(map(str, invalid))}.")
+        send_message(chat_id, f"Researching topic(s) {', '.join(map(str, valid))}...")
+        t = threading.Thread(target=research_and_reply, args=(chat_id, valid, items), daemon=True)
+        t.start()
+        return jsonify({"status": "ok"}), 200
+
+    send_message(chat_id, "Send /digest to get the latest agentic coding news from your newsletters.")
     return jsonify({"status": "ok"}), 200
 
 
