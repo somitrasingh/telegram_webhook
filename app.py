@@ -25,10 +25,9 @@ NEWSLETTER_QUERY = (
     "(from:news@alphasignal.ai OR from:dan@tldrnewsletter.com) newer_than:1d"
 )
 AGENTIC_KEYWORDS = [
-    "claude code", "codex", "cursor", "warp terminal", "mcp", "model context protocol",
-    "claude agent", "managed agent", "agentic coding", "copilot", "multi-agent",
-    "single-agent", "new model", "model release", "context window", "coding agent",
-    "claude code", "agent template", "subagent", "harness",
+    "claude", "codex", "cursor", "warp", "mcp", "model release", "agent",
+    "coding", "llm", "gpt", "gemini", "copilot", "agentic", "ai tool",
+    "benchmark", "performance", "inference", "multi-agent", "single-agent",
 ]
 
 
@@ -71,28 +70,47 @@ def is_relevant(text):
     return any(kw in text_lower for kw in AGENTIC_KEYWORDS)
 
 
+JUNK_PHRASES = [
+    "unsubscribe", "manage your subscriptions", "links: ------",
+    "privacy policy", "work with us", "follow on x", "signup",
+    "forward →", "presented by", "utm_source", "grab your seat",
+    "learn more →", "get the guide", "read more", "‌",
+]
+
+
+def is_junk(text):
+    t = text.lower()
+    return any(j in t for j in JUNK_PHRASES)
+
+
 def extract_topics(body, subject):
-    """Split body into sections and return relevant ones as (headline, summary) pairs."""
     topics = []
-    # Try to find section headers by looking for short capitalized lines or repeated patterns
     lines = [l.strip() for l in body.splitlines() if l.strip()]
     current_headline = subject
-    current_block = []
+    first_sentence = ""
 
     for line in lines:
-        # Heuristic: short lines (< 80 chars) that don't end with punctuation = potential headline
-        if len(line) < 80 and not line.endswith((",", ";")) and line[0].isupper() and len(line.split()) > 3:
-            if current_block and is_relevant(" ".join(current_block)):
-                summary = " ".join(current_block[:6])[:400]
-                topics.append((current_headline, summary))
+        if is_junk(line):
+            continue
+        is_header = (
+            len(line) < 100
+            and not line.endswith((",", ";", ":"))
+            and line[0].isupper()
+            and len(line.split()) >= 4
+        )
+        if is_header:
+            if first_sentence and is_relevant(current_headline + " " + first_sentence):
+                topics.append((current_headline, first_sentence))
             current_headline = line
-            current_block = []
-        else:
-            current_block.append(line)
+            first_sentence = ""
+        elif not first_sentence and len(line) > 30 and not is_junk(line):
+            # Take only the first meaningful sentence
+            sentence = line.split(".")[0].strip()
+            if len(sentence) > 20:
+                first_sentence = sentence[:200]
 
-    if current_block and is_relevant(" ".join(current_block)):
-        summary = " ".join(current_block[:6])[:400]
-        topics.append((current_headline, summary))
+    if first_sentence and is_relevant(current_headline + " " + first_sentence):
+        topics.append((current_headline, first_sentence))
 
     return topics
 
@@ -121,29 +139,14 @@ def safe(text):
     return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
-TELEGRAM_MAX = 4000
-
-
 def format_digest(items):
     if not items:
-        return ["No agentic coding news found in the last 24 hours."]
-
-    header = "<b>Agentic Coding Digest</b>\n\n"
-    chunks = []
-    current = header
-
-    for i, (headline, summary) in enumerate(items, 1):
-        block = f"<b>{i}. {safe(headline)}</b>\n{safe(summary)}\n\n"
-        if len(current) + len(block) > TELEGRAM_MAX:
-            chunks.append(current.strip())
-            current = block
-        else:
-            current += block
-
-    if current.strip():
-        chunks.append(current.strip())
-
-    return chunks
+        return "No agentic coding news found in the last 24 hours."
+    lines = ["<b>Agentic Coding Digest</b>\n"]
+    for i, (headline, summary) in enumerate(items[:8], 1):
+        lines.append(f"<b>{i}. {safe(headline)}</b>")
+        lines.append(f"{safe(summary)}\n")
+    return "\n".join(lines)
 
 
 @app.route("/")
@@ -158,13 +161,12 @@ def debug():
         token_exists = os.path.exists("token.pickle")
         token_b64_set = bool(os.getenv("TOKEN_PICKLE_B64"))
         items = fetch_digest()
-        chunks = format_digest(items)
-        preview = "\n\n--- CHUNK BREAK ---\n\n".join(chunks)
+        result = format_digest(items)
         return (
             f"<pre>token.pickle exists: {token_exists}\n"
             f"TOKEN_PICKLE_B64 set: {token_b64_set}\n"
-            f"Items found: {len(items)} | Telegram messages: {len(chunks)}\n\n"
-            f"--- OUTPUT ---\n\n{preview}</pre>"
+            f"Items found: {len(items)}\n\n"
+            f"--- OUTPUT ({len(result)} chars) ---\n\n{result}</pre>"
         ), 200
     except Exception as e:
         return f"<pre>ERROR: {e}</pre>", 500
@@ -188,9 +190,8 @@ def receive_message():
         send_message(chat_id, "Fetching latest agentic coding news...")
         try:
             items = fetch_digest()
-            chunks = format_digest(items)
-            for chunk in chunks:
-                send_message(chat_id, chunk, parse_mode="HTML")
+            reply = format_digest(items)
+            send_message(chat_id, reply, parse_mode="HTML")
         except Exception as e:
             send_message(chat_id, f"Error fetching digest: {e}")
         return jsonify({"status": "ok"}), 200
