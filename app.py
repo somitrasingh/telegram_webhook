@@ -116,13 +116,17 @@ def fetch_digest():
     return digest_items
 
 
+def safe(text):
+    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
 def format_digest(items):
     if not items:
         return "No agentic coding news found in the last 24 hours."
-    lines = ["*Agentic Coding Digest*\n"]
+    lines = ["<b>Agentic Coding Digest</b>\n"]
     for i, (headline, summary) in enumerate(items, 1):
-        lines.append(f"*{i}. {headline}*")
-        lines.append(f"{summary}\n")
+        lines.append(f"<b>{i}. {safe(headline)}</b>")
+        lines.append(f"{safe(summary)}\n")
     return "\n".join(lines)
 
 
@@ -150,12 +154,14 @@ def receive_message():
         try:
             items = fetch_digest()
             reply = format_digest(items)
+            send_message(chat_id, reply, parse_mode="HTML")
         except Exception as e:
-            reply = f"Error fetching digest: {e}"
+            send_message(chat_id, f"Error fetching digest: {e}")
+        return jsonify({"status": "ok"}), 200
     else:
         reply = "Send /digest to get the latest agentic coding news from your newsletters."
 
-    send_message(chat_id, reply, parse_mode="Markdown")
+    send_message(chat_id, reply)
     return jsonify({"status": "ok"}), 200
 
 
