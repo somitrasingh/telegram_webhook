@@ -256,6 +256,8 @@ def research_and_reply(chat_id: int, topic_nums: list[int], items: list[tuple[st
             with lock:
                 saved.append(f"Topic {num} → {filepath}")
         except Exception as e:
+            import traceback
+            print(f"Research error for topic {num}: {traceback.format_exc()}")
             with lock:
                 errors[num] = str(e)
 
@@ -266,8 +268,10 @@ def research_and_reply(chat_id: int, topic_nums: list[int], items: list[tuple[st
         t.join()
 
     if errors:
-        failed = ", ".join(f"topic {n}" for n in sorted(errors))
-        send_message(chat_id, f"Research done. Failed: {failed}.")
+        lines = [f"Research failed for:"]
+        for n in sorted(errors):
+            lines.append(f"• Topic {n}: {errors[n]}")
+        send_message(chat_id, "\n".join(lines))
     else:
         send_message(chat_id, f"Research complete. {len(saved)} topic(s) saved to Google Drive → {DRIVE_FOLDER_NAME}.")
 
