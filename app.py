@@ -221,7 +221,7 @@ def research_topic(topic_num: int, headline: str, summary: str) -> str:
     response = openai_client.chat.completions.create(
         model="gpt-5.4-mini",
         messages=[{"role": "user", "content": prompt}],
-        max_tokens=600,
+        max_completion_tokens=600,
     )
     text = response.choices[0].message.content.strip()
 
