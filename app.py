@@ -25,9 +25,10 @@ NEWSLETTER_QUERY = (
     "(from:news@alphasignal.ai OR from:dan@tldrnewsletter.com) newer_than:1d"
 )
 AGENTIC_KEYWORDS = [
-    "claude", "codex", "cursor", "warp", "mcp", "model release", "agent",
-    "coding", "llm", "gpt", "gemini", "copilot", "agentic", "ai tool",
-    "benchmark", "performance", "inference", "multi-agent", "single-agent",
+    "claude code", "codex", "cursor", "warp terminal", "mcp", "model context protocol",
+    "claude agent", "managed agent", "agentic coding", "copilot", "multi-agent",
+    "single-agent", "new model", "model release", "context window", "coding agent",
+    "claude code", "agent template", "subagent", "harness",
 ]
 
 
@@ -120,14 +121,29 @@ def safe(text):
     return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
+TELEGRAM_MAX = 4000
+
+
 def format_digest(items):
     if not items:
-        return "No agentic coding news found in the last 24 hours."
-    lines = ["<b>Agentic Coding Digest</b>\n"]
+        return ["No agentic coding news found in the last 24 hours."]
+
+    header = "<b>Agentic Coding Digest</b>\n\n"
+    chunks = []
+    current = header
+
     for i, (headline, summary) in enumerate(items, 1):
-        lines.append(f"<b>{i}. {safe(headline)}</b>")
-        lines.append(f"{safe(summary)}\n")
-    return "\n".join(lines)
+        block = f"<b>{i}. {safe(headline)}</b>\n{safe(summary)}\n\n"
+        if len(current) + len(block) > TELEGRAM_MAX:
+            chunks.append(current.strip())
+            current = block
+        else:
+            current += block
+
+    if current.strip():
+        chunks.append(current.strip())
+
+    return chunks
 
 
 @app.route("/")
@@ -142,12 +158,13 @@ def debug():
         token_exists = os.path.exists("token.pickle")
         token_b64_set = bool(os.getenv("TOKEN_PICKLE_B64"))
         items = fetch_digest()
-        result = format_digest(items)
+        chunks = format_digest(items)
+        preview = "\n\n--- CHUNK BREAK ---\n\n".join(chunks)
         return (
             f"<pre>token.pickle exists: {token_exists}\n"
             f"TOKEN_PICKLE_B64 set: {token_b64_set}\n"
-            f"Items found: {len(items)}\n\n"
-            f"--- OUTPUT ({len(result)} chars) ---\n\n{result}</pre>"
+            f"Items found: {len(items)} | Telegram messages: {len(chunks)}\n\n"
+            f"--- OUTPUT ---\n\n{preview}</pre>"
         ), 200
     except Exception as e:
         return f"<pre>ERROR: {e}</pre>", 500
@@ -171,8 +188,9 @@ def receive_message():
         send_message(chat_id, "Fetching latest agentic coding news...")
         try:
             items = fetch_digest()
-            reply = format_digest(items)
-            send_message(chat_id, reply, parse_mode="HTML")
+            chunks = format_digest(items)
+            for chunk in chunks:
+                send_message(chat_id, chunk, parse_mode="HTML")
         except Exception as e:
             send_message(chat_id, f"Error fetching digest: {e}")
         return jsonify({"status": "ok"}), 200
