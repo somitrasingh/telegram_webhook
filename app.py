@@ -239,29 +239,29 @@ Then write the content in this structure based on the chosen direction:
 
 IF DIRECTION 1:
 # Headline (punchy, provocative — max 10 words)
-## What Happened (2 sentences, factual and tight)
-## So What? — Impact 1: [Job/Career angle]
-## So What? — Impact 2: [Privacy or data angle]
-## So What? — Impact 3: [Wallet/cost angle]
-## Action Step (1 sentence — specific and actionable)
+## What Happened (3–4 sentences: cover the event, the players involved, the timeline, and any immediate industry reactions)
+## So What? — Impact 1: [Job/Career angle — 3–4 sentences: which roles are affected, at what scale, what this means for hiring or reskilling, with any concrete numbers or examples]
+## So What? — Impact 2: [Privacy or data angle — 3–4 sentences: what data is involved, who controls it, what the worst-case scenario looks like, and any relevant precedents]
+## So What? — Impact 3: [Wallet/cost angle — 3–4 sentences: who pays more or less, by how much, what the downstream pricing effects are, and who benefits financially]
+## Action Step (2–3 sentences — specific, actionable, and time-bound: what the reader should do, how, and why now)
 
 IF DIRECTION 2:
 # Headline (format: "Stop using X. Use Y instead.")
-## Old Tool: [name, key limitations, price]
-## New Tool: [name, key strengths, price]
-## Side-by-Side Comparison (3–4 rows: feature, speed, price, best for)
-## Pro-Prompt 1: [specific prompt the reader can run today]
-## Pro-Prompt 2: [specific prompt the reader can run today]
-## Pro-Prompt 3: [specific prompt the reader can run today]
-## CTA: "Save this for later."
+## Old Tool: [name — 3–4 sentences covering key limitations, why it became the default, its pricing, and where it still makes sense]
+## New Tool: [name — 3–4 sentences covering what makes it different, its key strengths, pricing, and which use cases it wins at decisively]
+## Side-by-Side Comparison (3–4 rows: feature, speed, price, best for — be specific with numbers and verdicts)
+## Pro-Prompt 1: [include the full prompt text + 2–3 sentences on why it works better on the new tool]
+## Pro-Prompt 2: [include the full prompt text + 2–3 sentences on why it works better on the new tool]
+## Pro-Prompt 3: [include the full prompt text + 2–3 sentences on why it works better on the new tool]
+## CTA: "Save this for later." (add 1–2 sentences on the single most important reason to switch now)
 
 IF DIRECTION 3:
-# Bold Claim or Visual Hook (quote from CEO or a wild capability claim)
-## The Hype: [What headlines and the company are saying — 2–3 sentences]
-## The Reality: [What it actually does, limitations, known issues — 2–3 sentences]
-## In Action — The Good: [specific capability that genuinely works]
-## In Action — The Bad/Glitchy: [specific failure mode or limitation with example]
-## Audience Question: "Revolutionary or overhyped?" + 1 sentence framing why it's debatable
+# Bold Claim or Visual Hook (quote from CEO or a wild capability claim — use direct quotes where possible)
+## The Hype: [3–4 sentences: what the company is claiming, which press or influencers amplified it, what the demo showed, and why it caught attention]
+## The Reality: [3–4 sentences: what independent testers or users actually found, specific failure modes, what the product genuinely cannot do, and any known workarounds]
+## In Action — The Good: [2–3 sentences: one specific capability that genuinely works, with a concrete example or benchmark that is hard to argue with]
+## In Action — The Bad/Glitchy: [2–3 sentences: one specific failure mode with a real or representative example — describe the input, the wrong output, and why it matters]
+## Audience Question: "Revolutionary or overhyped?" + 2–3 sentences framing both sides, naming what would have to be true for it to be revolutionary and what evidence currently points the other way
 
 Keep the tone sharp, direct, and opinionated — this is content for an AI-savvy LinkedIn and Instagram audience. No fluff. Every sentence should either inform, surprise, or provoke.\
 """
